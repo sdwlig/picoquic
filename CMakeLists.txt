@@ -275,28 +275,28 @@ macro(set_picoquic_compile_settings)
             CXX_EXTENSIONS YES)
     target_compile_options(${ARGV0}
         PRIVATE
-            $<$<C_COMPILER_ID:Clang>: -O3 -Wall -fno-exceptions
+            $<$<C_COMPILER_ID:Clang>: -O0 -g -Wall -fno-exceptions
                 -fno-signed-zeros -fno-trapping-math
                 ${PICOQUIC_ADDITIONAL_C_FLAGS}>
             $<$<C_COMPILER_ID:AppleClang>: -O3 -Wall -fno-exceptions
                 -fno-signed-zeros -fno-trapping-math
                 ${PICOQUIC_ADDITIONAL_C_FLAGS}>
-            $<$<C_COMPILER_ID:GNU>: -O3 -Wall -fno-exceptions
+            $<$<C_COMPILER_ID:GNU>: -O0 -g -Wall -fno-exceptions
                 -fno-signed-zeros -frename-registers -fno-trapping-math
                 ${PICOQUIC_ADDITIONAL_C_FLAGS}>
             $<$<C_COMPILER_ID:MSVC>: >
-            $<$<CXX_COMPILER_ID:Clang>: -O3 -Wall -fno-exceptions
+            $<$<CXX_COMPILER_ID:Clang>: -O0 -g -Wall -fno-exceptions
                 -fno-signed-zeros -fno-trapping-math
                 ${PICOQUIC_ADDITIONAL_CXX_FLAGS}>
             $<$<CXX_COMPILER_ID:AppleClang>: -O3 -Wall -fno-exceptions
                 -fno-signed-zeros -fno-trapping-math
                 ${PICOQUIC_ADDITIONAL_CXX_FLAGS}>
-            $<$<CXX_COMPILER_ID:GNU>: -O3 -Wall -fno-exceptions
+            $<$<CXX_COMPILER_ID:GNU>: -O3 -g -Wall -fno-exceptions
                 -fno-signed-zeros -frename-registers -fno-trapping-math
                 ${PICOQUIC_ADDITIONAL_CXX_FLAGS}>
             $<$<CXX_COMPILER_ID:MSVC>: >)
     target_compile_definitions(${ARGV0} PRIVATE ${PICOQUIC_COMPILE_DEFINITIONS})
-    target_link_options(${ARGV0} PRIVATE ${PICOQUIC_LINKER_FLAGS})
+    target_link_options(${ARGV0} PRIVATE ${PICOQUIC_LINKER_FLAGS} -g)
 endmacro()
 
 

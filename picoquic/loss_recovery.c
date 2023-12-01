@@ -501,7 +501,7 @@ static size_t picoquic_retransmit_needed_packet(picoquic_cnx_t* cnx, picoquic_pa
                     }
                 }
                 /* Then, manage the total number of retransmissions across all paths. */
-                if ((old_path == NULL || old_path->nb_retransmit > 9) &&
+                if ((old_path == NULL || old_path->nb_retransmit > 30) &&
                     cnx->cnx_state >= picoquic_state_ready) {
                     /* TODO: only disconnect if there is no other available path */
                     int all_paths_bad = 1;
