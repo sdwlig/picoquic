@@ -14,6 +14,9 @@ project(picoquic
 
 find_package(Threads REQUIRED)
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdebug-prefix-map=/mnt/c/c/wt/picoquic=c:\\c\\wt\\picoquic")
+
+
 option(DISABLE_DEBUG_PRINTF "Disable Picoquic debug output" OFF)
 option(ENABLE_ASAN "Enable AddressSanitizer (ASAN) for debugging" OFF)
 option(ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer (UBSan) for debugging" OFF)

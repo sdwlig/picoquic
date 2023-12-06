@@ -143,6 +143,7 @@ picosplay_node_t* picosplay_find(picosplay_tree_t *tree, void *value)
     picosplay_node_t *curr = tree->root;
     int found = 0;
     while(curr != NULL && !found) {
+      if (!tree->comp) break;
         int64_t relation = tree->comp(value, tree->node_value(curr));
         if(relation == 0) {
             found = 1;
