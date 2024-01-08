@@ -61,9 +61,9 @@ typedef struct st_picoquic_demo_stream_ctx_t {
     uint64_t post_sent;
     char* f_name;
     FILE* F; /* NULL if stream is closed or no_disk. */
-    int is_open : 1;
-    int is_file_open : 1;
-    int flow_opened : 1;
+    unsigned int is_open : 1;
+    unsigned int is_file_open : 1;
+    unsigned int flow_opened : 1;
 } picoquic_demo_client_stream_ctx_t;
 
 typedef struct st_picoquic_demo_client_callback_ctx_t {
@@ -99,7 +99,7 @@ picoquic_alpn_enum picoquic_parse_alpn_nz(char const* alpn, size_t len);
  */
 
 int picoquic_demo_client_get_alpn_and_version_from_tickets(picoquic_quic_t* quic,
-    char const* sni, char const* alpn, uint32_t proposed_version, uint64_t current_time,
+    char const* sni, char const* alpn, uint32_t proposed_version,
     char const** ticket_alpn, uint32_t* ticket_version);
 
 int h09_demo_client_prepare_stream_open_command(

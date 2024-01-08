@@ -184,6 +184,30 @@ Hystart instead of startup if the RTT is above the Reno target of
  * timeout, the timeout will still be handled.
  */
 
+/*
+* Handling of suspension
+* 
+* After a timeout, the path is suspended, and the congestion window is
+* immediately reduced. If do not do anything in particular, the
+* suspended state will be cleared on the first next acknowledgement,
+* and the congestion window will be restored gradually.
+* 
+* This is correct in general, when the timeout is due to some series
+* of packet loss events. It is not so good in the particular case of
+* Wi-Fi suspension, when the timeout is caused by the Wi-Fi link
+* being "suspended" for the time needed to scan other channels. In that
+* case, the code will receive a "spurious time out" notification,
+* typically triggered when an ACK queued "in the network" is delivered
+* when transmission resume. Waiting for the next ACK has two
+* downsides:
+* 
+* - it comes some times later, something like 1/2 RTT to 1 full RTT.
+* - the CWIND is lower than if the suspension had not happened.
+*
+* The reasonable solution is to exit the suspended state upon
+* notification of spurious reset, and restore the prior cwin.
+*/
+
 typedef enum {
     picoquic_bbr_alg_startup = 0,
     picoquic_bbr_alg_drain,
@@ -252,9 +276,12 @@ typedef struct st_picoquic_bbr_state_t {
     uint64_t previous_sampling_lost;
     uint64_t loss_interval_start; /* Time in microsec when last loss considered */
     uint64_t congestion_sequence; /* sequence number after congestion notification */
-
+    uint64_t cwin_before_suspension; /* So it can be restored if suspension stops. */
+#if 1
+    uint64_t epoch_start_stamp;
+#endif
     uint64_t wifi_shadow_rtt; /* Shadow RTT used for wifi connections. */
-
+    double quantum_ratio; /* Fraction of pacing rate used for Quantum, or zero if not set*/
     unsigned int filled_pipe : 1;
     unsigned int round_start : 1;
     unsigned int rt_prop_expired : 1;
@@ -266,6 +293,8 @@ typedef struct st_picoquic_bbr_state_t {
     unsigned int lt_is_sampling : 1;
     unsigned int last_loss_was_timeout : 1;
     unsigned int cycle_on_loss : 1;
+    unsigned int is_suspended;
+    unsigned int is_suspension_nearly_over : 1; /* Suspension likely over, waiting for ACK before repeating data. */
 
 } picoquic_bbr_state_t;
 
@@ -304,16 +333,33 @@ void BBREnterStartup(picoquic_bbr_state_t* bbr_state)
 
 void BBRSetSendQuantum(picoquic_bbr_state_t* bbr_state, picoquic_path_t* path_x)
 {
-    if (bbr_state->pacing_rate < BBR_PACING_RATE_LOW) {
-        bbr_state->send_quantum = 1ull * path_x->send_mtu;
-    } 
-    else if (bbr_state->pacing_rate < BBR_PACING_RATE_MEDIUM) {
-        bbr_state->send_quantum = 2ull * path_x->send_mtu;
+    if (bbr_state->quantum_ratio == 0) {
+        if (bbr_state->pacing_rate < BBR_PACING_RATE_LOW) {
+            bbr_state->send_quantum = 1ull * path_x->send_mtu;
+        } 
+        else if (bbr_state->pacing_rate < BBR_PACING_RATE_MEDIUM) {
+            bbr_state->send_quantum = 2ull * path_x->send_mtu;
+        }
+        else {
+            bbr_state->send_quantum = (uint64_t)(bbr_state->pacing_rate * 0.001);
+            if (bbr_state->send_quantum > 0x10000) {
+                bbr_state->send_quantum = 0x10000;
+            }
+        }
     }
     else {
-        bbr_state->send_quantum = (uint64_t)(bbr_state->pacing_rate * 0.001);
+        bbr_state->send_quantum = (uint64_t)(bbr_state->pacing_rate * bbr_state->quantum_ratio);
+
         if (bbr_state->send_quantum > 0x10000) {
             bbr_state->send_quantum = 0x10000;
+        }
+        else if (bbr_state->send_quantum < 2ull * path_x->send_mtu) {
+            if (bbr_state->send_quantum < 1ull * path_x->send_mtu) {
+                bbr_state->send_quantum = 1ull * path_x->send_mtu;
+            }
+            else {
+                bbr_state->send_quantum = 2ull * path_x->send_mtu;
+            }
         }
     }
 }
@@ -340,12 +386,14 @@ void BBRUpdateTargetCwnd(picoquic_bbr_state_t* bbr_state)
     bbr_state->target_cwnd = BBRInflight(bbr_state, bbr_state->cwnd_gain);
 }
 
-static void picoquic_bbr_reset(picoquic_bbr_state_t* bbr_state, picoquic_path_t* path_x, uint64_t current_time, uint64_t wifi_shadow_rtt)
+static void picoquic_bbr_reset(picoquic_bbr_state_t* bbr_state, picoquic_path_t* path_x, uint64_t current_time, 
+    uint64_t wifi_shadow_rtt, double quantum_ratio)
 {
     memset(bbr_state, 0, sizeof(picoquic_bbr_state_t));
     path_x->cwin = PICOQUIC_CWIN_INITIAL;
     bbr_state->rt_prop = UINT64_MAX;
     bbr_state->wifi_shadow_rtt = wifi_shadow_rtt;
+    bbr_state->quantum_ratio = quantum_ratio;
 
     bbr_state->rt_prop_stamp = current_time;
     bbr_state->cycle_stamp = current_time;
@@ -364,7 +412,7 @@ static void picoquic_bbr_init(picoquic_cnx_t * cnx, picoquic_path_t* path_x, uin
 
     path_x->congestion_alg_state = (void*)bbr_state;
     if (bbr_state != NULL) {
-        picoquic_bbr_reset(bbr_state, path_x, current_time, cnx->quic->wifi_shadow_rtt);
+        picoquic_bbr_reset(bbr_state, path_x, current_time, cnx->quic->wifi_shadow_rtt, cnx->quic->bbr_quantum_ratio);
     }
 }
 
@@ -506,6 +554,18 @@ void BBRltbwSampling(picoquic_bbr_state_t* bbr_state, picoquic_path_t* path_x, u
 void BBRUpdateBtlBw(picoquic_bbr_state_t* bbr_state, picoquic_path_t* path_x, uint64_t current_time)
 {
     uint64_t bandwidth_estimate = path_x->bandwidth_estimate;
+#if 1
+    if (path_x->delivered_last_packet >= bbr_state->next_round_delivered &&
+        bbr_state->epoch_start_stamp < current_time)
+    {
+        uint64_t delivered_this_round = path_x->delivered_last_packet - bbr_state->next_round_delivered;
+        uint64_t epoch_length = current_time - bbr_state->epoch_start_stamp;
+        uint64_t alt_estimate = delivered_this_round*1000000 / epoch_length;
+        if (alt_estimate > bandwidth_estimate) {
+            bandwidth_estimate = alt_estimate;
+        }
+    }
+#endif
 
     if (bbr_state->state == picoquic_bbr_alg_startup &&
         bandwidth_estimate < (path_x->peak_bandwidth_estimate / 2)) {
@@ -533,6 +593,9 @@ void BBRUpdateBtlBw(picoquic_bbr_state_t* bbr_state, picoquic_path_t* path_x, ui
     BBRltbwSampling(bbr_state, path_x, current_time);
 
     if (bbr_state->round_start) {
+#if 1
+        bbr_state->epoch_start_stamp = current_time;
+#endif
         if (bandwidth_estimate > bbr_state->btl_bw ||
             !path_x->last_bw_estimate_path_limited) {
             /* Forget the oldest BW round, shift by 1, compute the max BTL_BW for
@@ -582,6 +645,11 @@ void BBRUpdateRTprop(picoquic_bbr_state_t* bbr_state, uint64_t rtt_sample, uint6
         if (20 * delta < bbr_state->rt_prop) {
             bbr_state->rt_prop_stamp = current_time;
         }
+#if 1
+        if (bbr_state->rt_prop < 1000 && rtt_sample < 5000){
+            bbr_state->rt_prop_stamp = current_time;
+        }
+#endif
     }
 }
 
@@ -1020,11 +1088,15 @@ void picoquic_bbr_notify_congestion(
         /* filter repeated loss events */
         return;
     }
-    path_x->cwin = path_x->cwin / 2;
     if (is_timeout || path_x->cwin < PICOQUIC_CWIN_MINIMUM) {
+        if (!bbr_state->is_suspended) {
+            bbr_state->is_suspended = 1;
+            bbr_state->cwin_before_suspension = path_x->cwin;
+        }
         path_x->cwin = PICOQUIC_CWIN_MINIMUM;
+    } else {
+        path_x->cwin = path_x->cwin / 2;
     }
-
     bbr_state->loss_interval_start = current_time;
     bbr_state->last_loss_was_timeout = is_timeout;
     bbr_state->congestion_sequence = picoquic_cc_get_sequence_number(cnx, path_x);
@@ -1041,6 +1113,39 @@ void picoquic_bbr_notify_congestion(
         bbr_state->cycle_on_loss = 1;
     }
 }
+
+/*
+* Exit from suspension, after notification of spurious repeat.
+*/
+void picoquic_bbr_suspension_almost_over(
+    picoquic_bbr_state_t* bbr_state,
+    picoquic_path_t* path_x,
+    uint64_t lost_packet_number)
+{
+    if (bbr_state->is_suspended &&
+        bbr_state->cwin_before_suspension > 0 &&
+        !bbr_state->is_suspension_nearly_over &&
+        bbr_state->congestion_sequence >= lost_packet_number) {
+        bbr_state->is_suspension_nearly_over = 1;
+    }
+}
+
+void picoquic_bbr_suspension_exit(
+    picoquic_bbr_state_t* bbr_state,
+    picoquic_cnx_t * cnx,
+    picoquic_path_t* path_x)
+{
+    if (bbr_state->is_suspended &&
+        bbr_state->is_suspension_nearly_over) {
+        path_x->cwin = bbr_state->cwin_before_suspension;
+        /* Set the pacing rate in picoquic sender */
+        picoquic_update_pacing_rate(cnx, path_x, bbr_state->pacing_rate, bbr_state->send_quantum);
+    }
+    bbr_state->is_suspended = 0;
+    bbr_state->is_suspension_nearly_over = 0;
+}
+
+
 
 
 /*
@@ -1067,6 +1172,9 @@ static void picoquic_bbr_notify(
         switch (notification) {
         case picoquic_congestion_notification_acknowledgement:
             /* sum the amount of data acked per packet */
+            if (bbr_state->is_suspended) {
+                picoquic_bbr_suspension_exit(bbr_state, cnx, path_x);
+            }
             bbr_state->bytes_delivered += nb_bytes_acknowledged;
             break;
         case picoquic_congestion_notification_ecn_ec:
@@ -1085,6 +1193,9 @@ static void picoquic_bbr_notify(
             }
             break;
         case picoquic_congestion_notification_spurious_repeat:
+            if (bbr_state->is_suspended) {
+                picoquic_bbr_suspension_almost_over(bbr_state, path_x, lost_packet_number);
+            }
             break;
         case picoquic_congestion_notification_rtt_measurement:
             if (bbr_state->state == picoquic_bbr_alg_startup && path_x->rtt_min > BBR_HYSTART_THRESHOLD_RTT) {
@@ -1142,7 +1253,7 @@ static void picoquic_bbr_notify(
         case picoquic_congestion_notification_cwin_blocked:
             break;
         case picoquic_congestion_notification_reset:
-            picoquic_bbr_reset(bbr_state, path_x, current_time, cnx->quic->wifi_shadow_rtt);
+            picoquic_bbr_reset(bbr_state, path_x, current_time, cnx->quic->wifi_shadow_rtt, cnx->quic->bbr_quantum_ratio);
             break;
         case picoquic_congestion_notification_seed_cwin:
             if (bbr_state->state == picoquic_bbr_alg_startup_long_rtt) {

@@ -277,9 +277,6 @@ picohttp_server_path_item_t path_item_list[2] =
     }
 };
 
-
-
-
 int quic_server(const char* server_name, picoquic_quic_config_t * config, int just_once)
 {
     /* Start: start the QUIC process with cert and key files */
@@ -770,9 +767,8 @@ int quic_client(const char* ip_address_text, int server_port,
         if (config->alpn == NULL || config->proposed_version == 0) {
             char const* ticket_alpn;
             uint32_t ticket_version;
-
             if (picoquic_demo_client_get_alpn_and_version_from_tickets(qclient, sni, config->alpn,
-                config->proposed_version, current_time, &ticket_alpn, &ticket_version) == 0) {
+                config->proposed_version, &ticket_alpn, &ticket_version) == 0) {
                 if (ticket_alpn != NULL) {
                     fprintf(stdout, "Set ALPN to %s based on stored ticket\n", ticket_alpn);
                     picoquic_config_set_option(config, picoquic_option_ALPN, ticket_alpn);
@@ -1116,8 +1112,7 @@ int quic_client(const char* ip_address_text, int server_port,
     if (qclient != NULL) {
         uint8_t* ticket;
         uint16_t ticket_length;
-
-        if (sni != NULL && loop_cb.saved_alpn != NULL && 0 == picoquic_get_ticket(qclient->p_first_ticket, current_time, sni, (uint16_t)strlen(sni), loop_cb.saved_alpn,
+        if (sni != NULL && loop_cb.saved_alpn != NULL && 0 == picoquic_get_ticket(qclient, sni, (uint16_t)strlen(sni), loop_cb.saved_alpn,
             (uint16_t)strlen(loop_cb.saved_alpn), 0, &ticket, &ticket_length, NULL, 0)) {
             fprintf(stdout, "Received ticket from %s (%s):\n", sni, loop_cb.saved_alpn);
             picoquic_textlog_picotls_ticket(stdout, picoquic_null_connection_id, ticket, ticket_length);

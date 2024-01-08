@@ -190,6 +190,9 @@ static const picoquic_test_def_t test_table[] = {
     { "red_cc", red_cc_test },
     { "multi_segment", multi_segment_test },
     { "pacing_cc", pacing_cc_test },
+    { "heavy_loss", heavy_loss_test },
+    { "heavy_loss_inter", heavy_loss_inter_test },
+    { "heavy_loss_total", heavy_loss_total_test },
     { "spurious_retransmit", spurious_retransmit_test },
     { "tls_zero_share", tls_zero_share_test },
     { "transport_param_log", transport_param_log_test },
@@ -268,6 +271,16 @@ static const picoquic_test_def_t test_table[] = {
     { "ec5c_silly_cid", ec5c_silly_cid_test },
     { "ec9a_preemptive_amok", ec9a_preemptive_amok_test },
     { "error_reason", error_reason_test },
+    { "idle_server", idle_server_test },
+    { "idle_timeout", idle_timeout_test },
+    { "reset_ack_max", reset_ack_max_test },
+    { "reset_ack_reset", reset_ack_reset_test },
+    { "reset_extra_max", reset_extra_max_test },
+    { "reset_extra_reset", reset_extra_reset_test },
+    { "reset_extra_stop", reset_extra_stop_test },
+    { "reset_need_max", reset_need_max_test },
+    { "reset_need_reset", reset_need_reset_test },
+    { "reset_need_stop", reset_need_stop_test },
     { "ready_to_send", ready_to_send_test },
     { "ready_to_skip", ready_to_skip_test },
     { "ready_to_zfin", ready_to_zfin_test },
@@ -428,8 +441,11 @@ static const picoquic_test_def_t test_table[] = {
     { "fuzz_initial", fuzz_initial_test},
     { "cnx_stress", cnx_stress_unit_test },
     { "cnx_ddos", cnx_ddos_unit_test },
+    { "config_option", config_option_test },
     { "config_option_letters", config_option_letters_test },
-    { "config_option", config_option_test }
+    { "config_quic", config_quic_test },
+    { "config_usage", config_usage_test }
+    
 };
 
 static size_t const nb_tests = sizeof(test_table) / sizeof(picoquic_test_def_t);

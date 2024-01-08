@@ -382,8 +382,7 @@ typedef struct st_picoquic_packet_t {
     struct st_picoquic_path_t* send_path;
     struct st_picoquic_packet_t* path_packet_next;
     struct st_picoquic_packet_t* path_packet_previous;
-    struct st_picoquic_packet_t* data_repeat_previous;
-    struct st_picoquic_packet_t* data_repeat_next;
+    picosplay_node_t queue_data_repeat_node;
     uint64_t sequence_number;
     uint64_t path_packet_number;
     uint64_t send_time;
@@ -392,6 +391,15 @@ typedef struct st_picoquic_packet_t {
     uint64_t delivered_sent_prior;
     size_t data_repeat_frame;
     size_t data_repeat_index;
+
+    /* Handling of data repeat queue requires sorting by priority,
+    * stream_id, stream_offset, data_length
+    */
+    uint64_t data_repeat_priority;
+    uint64_t data_repeat_stream_id;
+    uint64_t data_repeat_stream_offset;
+    size_t data_repeat_stream_data_length;
+
     size_t length;
     size_t checksum_overhead;
     size_t offset;
@@ -465,32 +473,27 @@ typedef struct st_picoquic_stored_ticket_t {
     unsigned int was_used : 1;
 } picoquic_stored_ticket_t;
 
-int picoquic_store_ticket(picoquic_stored_ticket_t** p_first_ticket,
-    uint64_t current_time,
+int picoquic_store_ticket(picoquic_quic_t* quic,
     char const* sni, uint16_t sni_length, char const* alpn, uint16_t alpn_length,
     uint32_t version, const uint8_t* ip_addr, uint8_t ip_addr_length,
     const uint8_t* ip_addr_client, uint8_t ip_addr_client_length,
-    uint8_t* ticket, uint16_t ticket_length, picoquic_tp_t const * tp);
-picoquic_stored_ticket_t* picoquic_get_stored_ticket(picoquic_stored_ticket_t* p_first_ticket,
-    uint64_t current_time, char const* sni, uint16_t sni_length, 
+    uint8_t* ticket, uint16_t ticket_length, picoquic_tp_t const* tp);
+picoquic_stored_ticket_t* picoquic_get_stored_ticket(picoquic_quic_t* quic,
+    char const* sni, uint16_t sni_length,
     char const* alpn, uint16_t alpn_length, uint32_t version, int need_unused, uint64_t ticket_id);
-int picoquic_get_ticket(picoquic_stored_ticket_t* p_first_ticket,
-    uint64_t current_time,
+int picoquic_get_ticket(picoquic_quic_t * quic,
     char const* sni, uint16_t sni_length, char const* alpn, uint16_t alpn_length,
     uint32_t version,
     uint8_t** ticket, uint16_t* ticket_length, picoquic_tp_t * tp, int mark_used);
-int picoquic_get_ticket_and_version(picoquic_stored_ticket_t* p_first_ticket,
-    uint64_t current_time,
+int picoquic_get_ticket_and_version(picoquic_quic_t * quic,
     char const* sni, uint16_t sni_length, char const* alpn, uint16_t alpn_length,
     uint32_t version, uint32_t* ticket_version,
     uint8_t** ticket, uint16_t* ticket_length, picoquic_tp_t* tp, int mark_used);
-
 int picoquic_save_tickets(const picoquic_stored_ticket_t* first_ticket,
     uint64_t current_time, char const* ticket_file_name);
-int picoquic_load_tickets(picoquic_stored_ticket_t** pp_first_ticket,
-    uint64_t current_time, char const* ticket_file_name);
+int picoquic_load_tickets(picoquic_quic_t* quic, char const* ticket_file_name);
 void picoquic_free_tickets(picoquic_stored_ticket_t** pp_first_ticket);
-void picoquic_seed_ticket(picoquic_cnx_t* cnx, picoquic_path_t* path_x, uint64_t current_time);
+void picoquic_seed_ticket(picoquic_cnx_t* cnx, picoquic_path_t* path_x);
 
 
 typedef struct st_picoquic_stored_token_t {
@@ -505,27 +508,23 @@ typedef struct st_picoquic_stored_token_t {
     unsigned int was_used : 1;
 } picoquic_stored_token_t;
 
-int picoquic_store_token(picoquic_stored_token_t** p_first_token,
-    uint64_t current_time,
+int picoquic_store_token(picoquic_quic_t * quic,
     char const* sni, uint16_t sni_length,
     uint8_t const* ip_addr, uint8_t ip_addr_length,
     uint8_t const* token, uint16_t token_length);
-int picoquic_get_token(picoquic_stored_token_t* p_first_token,
-    uint64_t current_time,
+int picoquic_get_token(picoquic_quic_t * quic,
     char const* sni, uint16_t sni_length,
     uint8_t const* ip_addr, uint8_t ip_addr_length,
     uint8_t** token, uint16_t* token_length, int mark_used);
 
-int picoquic_save_tokens(const picoquic_stored_token_t* first_token,
-    uint64_t current_time, char const* token_file_name);
-int picoquic_load_tokens(picoquic_stored_token_t** pp_first_token,
-    uint64_t current_time, char const* token_file_name);
+int picoquic_save_tokens(picoquic_quic_t* quic,
+    char const* token_file_name);
+int picoquic_load_tokens(picoquic_quic_t* quic, char const* token_file_name);
 void picoquic_free_tokens(picoquic_stored_token_t** pp_first_token);
 
 /* Remember the tickets issued by a server, and the last
  * congestion control parameters for the corresponding connection
  */
-
 
 typedef struct st_picoquic_issued_ticket_t {
     struct st_picoquic_issued_ticket_t* next_ticket;
@@ -577,7 +576,6 @@ typedef uint64_t picoquic_tp_enum;
 #define picoquic_tp_retry_connection_id 16 
 #define picoquic_tp_max_datagram_frame_size 32 /* per draft-pauly-quic-datagram-05 */ 
 #define picoquic_tp_test_large_chello 3127 
-#define picoquic_tp_enable_loss_bit_old 0x1055 
 #define picoquic_tp_enable_loss_bit 0x1057 
 #define picoquic_tp_min_ack_delay 0xff04de1aull 
 #define picoquic_tp_enable_time_stamp 0x7158  /* x&1 */
@@ -616,6 +614,7 @@ typedef struct st_picoquic_quic_t {
     picosplay_tree_t token_reuse_tree; /* detection of token reuse */
     uint8_t local_cnxid_length;
     uint8_t default_stream_priority;
+    uint8_t default_datagram_priority;
     uint64_t local_cnxid_ttl; /* Max time to live of Connection ID in microsec, init to "forever" */
     uint32_t mtu_max;
     uint32_t padding_multiple_default;
@@ -625,7 +624,7 @@ typedef struct st_picoquic_quic_t {
     picoquic_spinbit_version_enum default_spin_policy;
     picoquic_lossbit_version_enum default_lossbit_policy;
     uint32_t default_multipath_option;
-    uint64_t default_idle_timeout;
+    uint64_t default_handshake_timeout;
     uint64_t crypto_epoch_length_max; /* Default packet interval between key rotations */
     uint32_t max_simultaneous_logs;
     uint32_t current_number_of_open_logs;
@@ -667,6 +666,7 @@ typedef struct st_picoquic_quic_t {
 
     picoquic_congestion_algorithm_t const* default_congestion_alg;
     uint64_t wifi_shadow_rtt;
+    double bbr_quantum_ratio;
 
     struct st_picoquic_cnx_t* cnx_list;
     struct st_picoquic_cnx_t* cnx_last;
@@ -1001,7 +1001,7 @@ typedef struct st_picoquic_path_t {
     uint64_t demotion_time;
     uint64_t challenge_time_first;
     uint8_t challenge_repeat_count;
-    uint64_t last_non_validating_pn;
+    uint64_t last_non_path_probing_pn;
     /* Last time a packet was sent on this path. */
     uint64_t last_sent_time;
     /* Number of packets sent on this path*/
@@ -1408,9 +1408,8 @@ typedef struct st_picoquic_cnx_t {
     uint64_t next_stream_id[4];
 
     /* Repeat queue contains packets with data frames that should be
-     * sent in priority when congestion window opens. */
-    struct st_picoquic_packet_t* data_repeat_first;
-    struct st_picoquic_packet_t* data_repeat_last;
+     * sent according to priority when congestion window opens. */
+    picosplay_tree_t queue_data_repeat_tree;
 
     /* Management of datagram queue (see also active datagram flag)
      * The "conflict" count indicates how many datagrams have been sent while
@@ -1421,6 +1420,7 @@ typedef struct st_picoquic_cnx_t {
      */
     picoquic_misc_frame_header_t* first_datagram;
     picoquic_misc_frame_header_t* last_datagram;
+    uint64_t datagram_priority;
     int datagram_conflicts_count;
     int datagram_conflicts_max;
 
@@ -1761,6 +1761,7 @@ picoquic_stream_head_t * picoquic_last_stream(picoquic_cnx_t * cnx);
 picoquic_stream_head_t * picoquic_next_stream(picoquic_stream_head_t * stream);
 picoquic_stream_head_t* picoquic_find_stream(picoquic_cnx_t* cnx, uint64_t stream_id);
 void picoquic_add_output_streams(picoquic_cnx_t * cnx, uint64_t old_limit, uint64_t new_limit, unsigned int is_bidir);
+picoquic_stream_head_t* picoquic_find_ready_stream_path(picoquic_cnx_t* cnx, picoquic_path_t* path_x);
 picoquic_stream_head_t* picoquic_find_ready_stream(picoquic_cnx_t* cnx);
 int picoquic_is_tls_stream_ready(picoquic_cnx_t* cnx);
 const uint8_t* picoquic_decode_stream_frame(picoquic_cnx_t* cnx, const uint8_t* bytes,
@@ -1783,20 +1784,22 @@ int picoquic_check_frame_needs_repeat(picoquic_cnx_t* cnx, const uint8_t* bytes,
     size_t bytes_max, picoquic_packet_type_enum p_type,
     int* no_need_to_repeat, int* do_not_detect_spurious, int *is_preemptive_needed);
 uint8_t* picoquic_format_available_stream_frames(picoquic_cnx_t* cnx, picoquic_path_t * path_x,
-    uint8_t* bytes_next, uint8_t* bytes_max,
+    uint8_t* bytes_next, uint8_t* bytes_max, uint64_t current_priority,
     int* more_data, int* is_pure_ack, int* stream_tried_and_failed, int* ret);
 
 /* Handling of stream_data_frames that need repeating.
  */
+void picoquic_queue_data_repeat_init(picoquic_cnx_t* cnx);
 void picoquic_queue_data_repeat_packet(
     picoquic_cnx_t* cnx, picoquic_packet_t* packet);
 void picoquic_dequeue_data_repeat_packet(
     picoquic_cnx_t* cnx, picoquic_packet_t* packet);
+picoquic_packet_t* picoquic_first_data_repeat_packet(picoquic_cnx_t* cnx);
 uint8_t* picoquic_copy_stream_frame_for_retransmit(
     picoquic_cnx_t* cnx, picoquic_packet_t* packet,
     uint8_t* bytes_next, uint8_t* bytes_max);
 uint8_t* picoquic_copy_stream_frames_for_retransmit(picoquic_cnx_t* cnx,
-    uint8_t* bytes_next, uint8_t* bytes_max, int* more_data, int* is_pure_ack);
+    uint8_t* bytes_next, uint8_t* bytes_max, uint64_t current_priority, int* more_data, int* is_pure_ack);
 /* Processing of packets considered lost: queueing frames
  * that need to be repeated as "misc" frames, setting the
  * flag `add_to_data_repeat_queue` if the packet contains stream

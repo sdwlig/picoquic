@@ -30,6 +30,8 @@
 #include <string.h>
 #ifndef _WINDOWS
 #include <sys/time.h>
+#include <time.h>
+#include <errno.h>
 #endif
 
 
@@ -539,7 +541,7 @@ static picosplay_node_t* picoquic_registered_token_create(void* value)
 
 static void* picoquic_registered_token_value(picosplay_node_t* node)
 {
-    return (void*)((char*)node - offsetof(struct st_picoquic_registered_token_t, registered_token_node));
+    return (void*)((node == NULL)?NULL:((char*)node - offsetof(struct st_picoquic_registered_token_t, registered_token_node)));
 }
 
 static void picoquic_registered_token_delete(void* tree, picosplay_node_t* node)
@@ -653,6 +655,7 @@ picoquic_quic_t* picoquic_create(uint32_t max_nb_connections,
         quic->stateless_reset_next_time = current_time;
         quic->stateless_reset_min_interval = PICOQUIC_MICROSEC_STATELESS_RESET_INTERVAL_DEFAULT;
         quic->default_stream_priority = PICOQUIC_DEFAULT_STREAM_PRIORITY;
+        quic->default_datagram_priority = PICOQUIC_DEFAULT_STREAM_PRIORITY;
         quic->cwin_max = UINT64_MAX;
         quic->sequence_hole_pseudo_period = PICOQUIC_DEFAULT_HOLE_PERIOD;
 
@@ -664,19 +667,8 @@ picoquic_quic_t* picoquic_create(uint32_t max_nb_connections,
         if (cnx_id_callback != NULL) {
             quic->unconditional_cnx_id = 1;
         }
-
         if (ticket_file_name != NULL) {
             quic->ticket_file_name = ticket_file_name;
-            ret = picoquic_load_tickets(&quic->p_first_ticket, current_time, ticket_file_name);
-
-            if (ret == PICOQUIC_ERROR_NO_SUCH_FILE) {
-                DBG_PRINTF("Ticket file <%s> not created yet.\n", ticket_file_name);
-                ret = 0;
-            }
-            else if (ret != 0) {
-                DBG_PRINTF("Cannot load tickets from <%s>\n", ticket_file_name);
-                ret = 0;
-            }
         }
 
         if (ret == 0) {
@@ -730,6 +722,19 @@ picoquic_quic_t* picoquic_create(uint32_t max_nb_connections,
                 picoquic_crypto_random(quic, quic->retry_seed, sizeof(quic->retry_seed));
 
                 /* If there is no root certificate context specified, use a null certifier. */
+                /* Load tickets */
+                if (quic->ticket_file_name != NULL) {
+                    ret = picoquic_load_tickets(quic, ticket_file_name);
+
+                    if (ret == PICOQUIC_ERROR_NO_SUCH_FILE) {
+                        DBG_PRINTF("Ticket file <%s> not created yet.\n", ticket_file_name);
+                        ret = 0;
+                    }
+                    else if (ret != 0) {
+                        DBG_PRINTF("Cannot load tickets from <%s>\n", ticket_file_name);
+                        ret = 0;
+                    }
+                }
             }
         }
         
@@ -744,8 +749,7 @@ picoquic_quic_t* picoquic_create(uint32_t max_nb_connections,
 
 int picoquic_load_token_file(picoquic_quic_t* quic, char const * token_file_name)
 {
-    uint64_t current_time = picoquic_get_quic_time(quic);
-    int ret = picoquic_load_tokens(&quic->p_first_token, current_time, token_file_name);
+    int ret = picoquic_load_tokens(quic, token_file_name);
 
     if (ret == PICOQUIC_ERROR_NO_SUCH_FILE) {
         DBG_PRINTF("Ticket file <%s> not created yet.\n", token_file_name);
@@ -834,10 +838,14 @@ void picoquic_set_max_data_control(picoquic_quic_t* quic, uint64_t max_data)
     }
 }
 
-void picoquic_set_default_idle_timeout(picoquic_quic_t* quic, uint64_t idle_timeout)
+void picoquic_set_default_idle_timeout(picoquic_quic_t* quic, uint64_t idle_timeout_ms)
 {
-    quic->default_idle_timeout = idle_timeout;
-    quic->default_tp.idle_timeout = idle_timeout;
+    quic->default_tp.max_idle_timeout = idle_timeout_ms;
+}
+
+void picoquic_set_default_handshake_timeout(picoquic_quic_t* quic, uint64_t handshake_timeout_us)
+{
+    quic->default_handshake_timeout = handshake_timeout_us;
 }
 
 void picoquic_set_default_crypto_epoch_length(picoquic_quic_t* quic, uint64_t crypto_epoch_length_max)
@@ -1223,7 +1231,7 @@ void picoquic_init_transport_parameters(picoquic_tp_t* tp, int client_mode)
     tp->initial_max_data = 0x100000;
     tp->initial_max_stream_id_bidir = 512;
     tp->initial_max_stream_id_unidir = 512;
-    tp->idle_timeout = PICOQUIC_MICROSEC_HANDSHAKE_MAX/1000;
+    tp->max_idle_timeout = PICOQUIC_MICROSEC_HANDSHAKE_MAX/1000;
     tp->max_packet_size = PICOQUIC_PRACTICAL_MAX_MTU;
     tp->max_datagram_frame_size = 0;
     tp->ack_delay_exponent = 3;
@@ -3359,6 +3367,9 @@ picoquic_cnx_t* picoquic_create_cnx(picoquic_quic_t* quic,
         cnx->rtt_update_delta = quic->rtt_update_delta;
         cnx->pacing_rate_update_delta = quic->pacing_rate_update_delta;
 
+        /* Initialize the stream data repeat queue */
+        picoquic_queue_data_repeat_init(cnx);
+
         /* Initialize the connection ID stash */
         ret = picoquic_create_path(cnx, start_time, NULL, addr_to);
         if (ret == 0) {
@@ -3379,6 +3390,7 @@ picoquic_cnx_t* picoquic_create_cnx(picoquic_quic_t* quic,
             cnx->path[0]->p_local_cnxid = cnxid0;
             cnx->path[0]->challenge_verified = 1;
 
+            cnx->datagram_priority = cnx->quic->default_datagram_priority;
             cnx->high_priority_stream_id = UINT64_MAX;
             for (int i = 0; i < 4; i++) {
                 cnx->next_stream_id[i] = i;
@@ -3819,6 +3831,13 @@ uint64_t picoquic_current_time()
     * Account for microseconds elapsed between 1601 and 1970.
     */
     now -= 11644473600000000ULL;
+#elif defined(CLOCK_MONOTONIC)
+    /*
+    * Use CLOCK_MONOTONIC if exists (more accurate)
+    */
+    struct timespec currentTime;
+    (void)clock_gettime(CLOCK_MONOTONIC, &currentTime);
+    now = (currentTime.tv_sec * 1000000ull) + currentTime.tv_nsec / 1000ull;
 #else
     struct timeval tv;
     (void)gettimeofday(&tv, NULL);
@@ -4271,9 +4290,7 @@ void picoquic_delete_cnx(picoquic_cnx_t* cnx)
             picoquic_delete_misc_or_dg(&cnx->first_datagram, &cnx->last_datagram, cnx->first_datagram);
         }
 
-        while (cnx->data_repeat_first != NULL) {
-            picoquic_dequeue_data_repeat_packet(cnx, cnx->data_repeat_first);
-        }
+        picosplay_empty_tree(&cnx->queue_data_repeat_tree);
 
         for (int epoch = 0; epoch < PICOQUIC_NUMBER_OF_EPOCHS; epoch++) {
             picoquic_clear_stream(&cnx->tls_stream[epoch]);
@@ -4386,7 +4403,7 @@ picoquic_cnx_t* picoquic_cnx_by_icid(picoquic_quic_t* quic, picoquic_connection_
 {
     picoquic_cnx_t* ret = NULL;
     picohash_item* item;
-    picoquic_cnx_t dummy_cnx;
+    picoquic_cnx_t dummy_cnx = { 0 };
 
     picoquic_store_addr(&dummy_cnx.registered_icid_addr, addr);
     dummy_cnx.initial_cnxid = *icid;
@@ -4508,6 +4525,11 @@ void picoquic_set_default_wifi_shadow_rtt(picoquic_quic_t* quic, uint64_t wifi_s
     quic->wifi_shadow_rtt = wifi_shadow_rtt;
 }
 
+void picoquic_set_default_bbr_quantum_ratio(picoquic_quic_t* quic, double quantum_ratio)
+{
+    quic->bbr_quantum_ratio = quantum_ratio;
+}
+
 void picoquic_subscribe_pacing_rate_updates(picoquic_cnx_t* cnx, uint64_t decrease_threshold, uint64_t increase_threshold)
 {
     cnx->pacing_decrease_threshold = decrease_threshold;
@@ -4552,7 +4574,7 @@ void picoquic_enable_keep_alive(picoquic_cnx_t* cnx, uint64_t interval)
         uint64_t idle_timeout = cnx->idle_timeout;
         if (idle_timeout == 0) {
             /* Idle timeout is only initialized after parameters are negotiated  */
-            idle_timeout = cnx->local_parameters.idle_timeout * 1000ull;
+            idle_timeout = cnx->local_parameters.max_idle_timeout * 1000ull;
         }
         /* Ensure at least 3 PTO*/
         if (idle_timeout < 3 * cnx->path[0]->retransmit_timer) {

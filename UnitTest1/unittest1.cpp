@@ -160,7 +160,7 @@ namespace UnitTest1
             Assert::AreEqual(ret, 0);
         }
 
-        TEST_METHOD(test_varints)
+        TEST_METHOD(varints)
         {
             int ret = varint_test();
 
@@ -1020,6 +1020,27 @@ namespace UnitTest1
             Assert::AreEqual(ret, 0);
         }
 
+        TEST_METHOD(heavy_loss)
+        {
+            int ret = heavy_loss_test();
+
+            Assert::AreEqual(ret, 0);
+        }
+
+        TEST_METHOD(heavy_loss_inter)
+        {
+            int ret = heavy_loss_inter_test();
+
+            Assert::AreEqual(ret, 0);
+        }
+
+        TEST_METHOD(heavy_loss_total)
+        {
+            int ret = heavy_loss_total_test();
+
+            Assert::AreEqual(ret, 0);
+        }
+
         TEST_METHOD(test_spurious_retransmit)
         {
             int ret = spurious_retransmit_test();
@@ -1111,7 +1132,7 @@ namespace UnitTest1
           Assert::AreEqual(ret, 0);
         }
 
-        TEST_METHOD(test_virtual_time)
+        TEST_METHOD(virtual_time)
         {
             int ret = virtual_time_test();
 
@@ -1582,6 +1603,73 @@ namespace UnitTest1
         TEST_METHOD(error_reason)
         {
             int ret = error_reason_test();
+
+            Assert::AreEqual(ret, 0);
+        }
+
+        TEST_METHOD(idle_server)
+        {
+            int ret = idle_server_test();
+
+            Assert::AreEqual(ret, 0);
+        }
+
+        TEST_METHOD(idle_timeout)
+        {
+            int ret = idle_timeout_test();
+
+            Assert::AreEqual(ret, 0);
+        }
+
+        TEST_METHOD(reset_ack_max)
+        {
+            int ret = reset_ack_max_test();
+
+            Assert::AreEqual(ret, 0);
+        }
+        TEST_METHOD(reset_ack_reset)
+        {
+            int ret = reset_ack_reset_test();
+
+            Assert::AreEqual(ret, 0);
+        }
+
+        TEST_METHOD(reset_extra_max)
+        {
+            int ret = reset_extra_max_test();
+
+            Assert::AreEqual(ret, 0);
+        }
+
+        TEST_METHOD(reset_extra_reset)
+        {
+            int ret = reset_extra_reset_test();
+
+            Assert::AreEqual(ret, 0);
+        }
+        TEST_METHOD(reset_extra_stop)
+        {
+            int ret = reset_extra_stop_test();
+
+            Assert::AreEqual(ret, 0);
+        }
+
+        TEST_METHOD(reset_need_max)
+        {
+            int ret = reset_need_max_test();
+
+            Assert::AreEqual(ret, 0);
+        }
+        TEST_METHOD(reset_need_reset)
+        {
+            int ret = reset_need_reset_test();
+
+            Assert::AreEqual(ret, 0);
+        }
+
+        TEST_METHOD(reset_need_stop)
+        {
+            int ret = reset_need_stop_test();
 
             Assert::AreEqual(ret, 0);
         }
@@ -2358,6 +2446,18 @@ namespace UnitTest1
             Assert::AreEqual(ret, 0);
         }
 
+        TEST_METHOD(config_quic) {
+            int ret = config_quic_test();
+
+            Assert::AreEqual(ret, 0);
+        }
+
+        TEST_METHOD(config_usage) {
+            int ret= config_usage_test();
+
+            Assert::AreEqual(ret, 0);
+        }
+
         TEST_METHOD(h3zero_integer) {
             int ret = h3zero_integer_test();
 
@@ -2532,13 +2632,11 @@ namespace UnitTest1
             Assert::AreEqual(ret, 0);
         }
 
-#if 0
         TEST_METHOD(h09_multi_file_preemptive) {
             int ret = h09_multi_file_preemptive_test();
 
             Assert::AreEqual(ret, 0);
         }
-#endif
 
         TEST_METHOD(h3_multi_file) {
             int ret = h3_multi_file_test();
@@ -2552,13 +2650,11 @@ namespace UnitTest1
             Assert::AreEqual(ret, 0);
         }
 
-#if 0
         TEST_METHOD(h3_multi_file_preemptive) {
             int ret = h3_multi_file_preemptive_test();
 
             Assert::AreEqual(ret, 0);
         }
-#endif
 
         TEST_METHOD(h3zero_settings) {
             int ret = h3zero_settings_test();
