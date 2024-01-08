@@ -3871,15 +3871,16 @@ static int picoquic_check_idle_timer(picoquic_cnx_t* cnx, uint64_t* next_wake_ti
     }
 
     if (current_time >= idle_timer) {
-        idle_timer = cnx->start_time + cnx->local_parameters.idle_timeout*1000ull;
-	if (0) { // Todo: prevent timeouts for now.
+      // ToDo: sdw
+      // idle_timer = cnx->start_time + cnx->local_parameters.max_idle_timeout*1000ull;
+      // if (0) { // Todo: prevent timeouts for now.
         /* Too long silence, break it. */
         if (cnx->cnx_state != picoquic_state_draining) {
             cnx->local_error = PICOQUIC_ERROR_IDLE_TIMEOUT;
         }
         ret = PICOQUIC_ERROR_DISCONNECTED;
         picoquic_connection_disconnect(cnx);
-	}
+	// }
     } else if (idle_timer < *next_wake_time) {
         *next_wake_time = idle_timer;
         SET_LAST_WAKE(cnx->quic, PICOQUIC_SENDER);
