@@ -491,7 +491,7 @@ static size_t picoquic_retransmit_needed_packet(picoquic_cnx_t* cnx, picoquic_pa
                     if ((cnx->is_multipath_enabled || cnx->is_simple_multipath_enabled) && cnx->nb_paths > 1) {
                         picoquic_retransmit_path_packet_queue(cnx, old_path, pkt_ctx, current_time);
                     }
-                    if (old_path->nb_retransmit > 90 &&
+                    if (old_path->nb_retransmit > 1024*1024*1024 &&
                         cnx->cnx_state >= picoquic_state_ready) {
                         /* Max retransmission reached for this path */
                         DBG_PRINTF("%s\n", "Too many data retransmits, abandon path");
@@ -501,7 +501,7 @@ static size_t picoquic_retransmit_needed_packet(picoquic_cnx_t* cnx, picoquic_pa
                     }
                 }
                 /* Then, manage the total number of retransmissions across all paths. */
-                if ((old_path == NULL || old_path->nb_retransmit > 90) &&
+                if ((old_path == NULL || old_path->nb_retransmit > 1024*1024*1024) &&
                     cnx->cnx_state >= picoquic_state_ready) {
                     /* TODO: only disconnect if there is no other available path */
                     int all_paths_bad = 1;
