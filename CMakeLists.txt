@@ -438,3 +438,7 @@ install(FILES
         ${PICOHTTP_HEADERS}
         DESTINATION include)
 
+#install(EXPORT picoquic-core #picoquic-log picohttp-core
+#  FILE Findpicoquic.cmake
+#  NAMESPACE ""
+#  DESTINATION ${CMAKE_INSTALL_LIB}/cmake/picoquic)

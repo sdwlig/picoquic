@@ -342,40 +342,10 @@ void start_windowed_max_filter_period(uint64_t* filter, unsigned int cycle, unsi
 
 uint64_t update_windowed_min_filter(uint64_t* filter, uint64_t v, unsigned int cycle, unsigned int filterLen)
 {
-<<<<<<< HEAD
-    if (bbr_state->quantum_ratio == 0) {
-        if (bbr_state->pacing_rate < BBR_PACING_RATE_LOW) {
-            bbr_state->send_quantum = 1ull * path_x->send_mtu;
-        } 
-        else if (bbr_state->pacing_rate < BBR_PACING_RATE_MEDIUM) {
-            bbr_state->send_quantum = 2ull * path_x->send_mtu;
-        }
-        else {
-            bbr_state->send_quantum = (uint64_t)(bbr_state->pacing_rate * 0.001);
-            if (bbr_state->send_quantum > 0x10000) {
-                bbr_state->send_quantum = 0x10000;
-            }
-        }
-    }
-    else {
-        bbr_state->send_quantum = (uint64_t)(bbr_state->pacing_rate * bbr_state->quantum_ratio);
-
-        if (bbr_state->send_quantum > 0x10000) {
-            bbr_state->send_quantum = 0x10000;
-=======
     filter[cycle % filterLen] = v;
     for (unsigned int i = 0; i < filterLen; i++) {
         if (filter[i] < v) {
             v = filter[i];
->>>>>>> master
-        }
-        else if (bbr_state->send_quantum < 2ull * path_x->send_mtu) {
-            if (bbr_state->send_quantum < 1ull * path_x->send_mtu) {
-                bbr_state->send_quantum = 1ull * path_x->send_mtu;
-            }
-            else {
-                bbr_state->send_quantum = 2ull * path_x->send_mtu;
-            }
         }
     }
     return v;
@@ -412,24 +382,13 @@ static void BBRInitFullPipe(picoquic_bbr_state_t* bbr_state)
     bbr_state->full_bw_count = 0;
 }
 
-<<<<<<< HEAD
-static void picoquic_bbr_reset(picoquic_bbr_state_t* bbr_state, picoquic_path_t* path_x, uint64_t current_time, 
-    uint64_t wifi_shadow_rtt, double quantum_ratio)
-=======
 /* Initialization of the BBR state */
 static void BBROnInit(picoquic_bbr_state_t* bbr_state, picoquic_path_t* path_x, uint64_t current_time)
->>>>>>> master
 {
     /* TODO:
     init_windowed_max_filter(filter = BBR.MaxBwFilter, value = 0, time = 0)
     */
     memset(bbr_state, 0, sizeof(picoquic_bbr_state_t));
-<<<<<<< HEAD
-    path_x->cwin = PICOQUIC_CWIN_INITIAL;
-    bbr_state->rt_prop = UINT64_MAX;
-    bbr_state->wifi_shadow_rtt = wifi_shadow_rtt;
-    bbr_state->quantum_ratio = quantum_ratio;
-=======
     BBRInitRandom(bbr_state, path_x, current_time);
     /* If RTT was already sampled, use it, other wise set min RTT to infinity */
     if (path_x->smoothed_rtt == PICOQUIC_INITIAL_RTT
@@ -439,7 +398,6 @@ static void BBROnInit(picoquic_bbr_state_t* bbr_state, picoquic_path_t* path_x, 
     else {
         bbr_state->min_rtt = path_x->smoothed_rtt;
     }
->>>>>>> master
 
     bbr_state->probe_rtt_min_stamp = current_time;
     bbr_state->probe_rtt_min_delay = bbr_state->min_rtt;
@@ -474,11 +432,7 @@ static void picoquic_bbr_init(picoquic_cnx_t * cnx, picoquic_path_t* path_x, uin
 
     path_x->congestion_alg_state = (void*)bbr_state;
     if (bbr_state != NULL) {
-<<<<<<< HEAD
-        picoquic_bbr_reset(bbr_state, path_x, current_time, cnx->quic->wifi_shadow_rtt, cnx->quic->bbr_quantum_ratio);
-=======
         BBROnInit(bbr_state, path_x, current_time);
->>>>>>> master
     }
 }
 
@@ -590,63 +544,12 @@ static void BBRSetCwnd(picoquic_bbr_state_t* bbr_state, picoquic_path_t* path_x,
 
 static uint64_t BBRSaveCwnd(picoquic_bbr_state_t* bbr_state, picoquic_path_t* path_x)
 {
-<<<<<<< HEAD
-    uint64_t bandwidth_estimate = path_x->bandwidth_estimate;
-#if 1
-    if (path_x->delivered_last_packet >= bbr_state->next_round_delivered &&
-        bbr_state->epoch_start_stamp < current_time)
-    {
-        uint64_t delivered_this_round = path_x->delivered_last_packet - bbr_state->next_round_delivered;
-        uint64_t epoch_length = current_time - bbr_state->epoch_start_stamp;
-        uint64_t alt_estimate = delivered_this_round*1000000 / epoch_length;
-        if (alt_estimate > bandwidth_estimate) {
-            bandwidth_estimate = alt_estimate;
-        }
-    }
-#endif
-
-    if (bbr_state->state == picoquic_bbr_alg_startup &&
-        bandwidth_estimate < (path_x->peak_bandwidth_estimate / 2)) {
-        bandwidth_estimate = path_x->peak_bandwidth_estimate/2;
-    }
-=======
->>>>>>> master
-
     if ( !InLossRecovery(bbr_state) && bbr_state->state != picoquic_bbr_alg_probe_rtt) {
         return path_x->cwin;
     }
     else {
-<<<<<<< HEAD
-        bbr_state->round_start = 0;
-    }
-
-    BBRltbwSampling(bbr_state, path_x, current_time);
-
-    if (bbr_state->round_start) {
-#if 1
-        bbr_state->epoch_start_stamp = current_time;
-#endif
-        if (bandwidth_estimate > bbr_state->btl_bw ||
-            !path_x->last_bw_estimate_path_limited) {
-            /* Forget the oldest BW round, shift by 1, compute the max BTL_BW for
-            * the remaining rounds, set current round max to current value */
-            bbr_state->btl_bw = 0;
-            for (int i = BBR_BTL_BW_FILTER_LENGTH - 2; i >= 0; i--) {
-                uint64_t b = bbr_state->btl_bw_filter[i];
-                bbr_state->btl_bw_filter[i + 1] = b;
-                if (b > bbr_state->btl_bw) {
-                    bbr_state->btl_bw = b;
-                }
-            }
-            bbr_state->btl_bw_increased |= (bandwidth_estimate > bbr_state->btl_bw_filter[0]);
-            bbr_state->btl_bw_filter[0] = bandwidth_estimate;
-            if (bandwidth_estimate > bbr_state->btl_bw) {
-                bbr_state->btl_bw = bandwidth_estimate;
-            }
-=======
         if (bbr_state->prior_cwnd > path_x->cwin) {
             return bbr_state->prior_cwnd;
->>>>>>> master
         }
         else {
             return path_x->cwin;
@@ -660,19 +563,7 @@ static uint64_t BBRRestoreCwnd(picoquic_bbr_state_t* bbr_state, picoquic_path_t*
         return bbr_state->prior_cwnd;
     }
     else {
-<<<<<<< HEAD
-        uint64_t delta = rtt_sample - bbr_state->rt_prop;
-        if (20 * delta < bbr_state->rt_prop) {
-            bbr_state->rt_prop_stamp = current_time;
-        }
-#if 1
-        if (bbr_state->rt_prop < 1000 && rtt_sample < 5000){
-            bbr_state->rt_prop_stamp = current_time;
-        }
-#endif
-=======
         return path_x->cwin;
->>>>>>> master
     }
 }
 
@@ -2141,11 +2032,7 @@ static void picoquic_bbr_notify(
         case picoquic_congestion_notification_cwin_blocked:
             break;
         case picoquic_congestion_notification_reset:
-<<<<<<< HEAD
-            picoquic_bbr_reset(bbr_state, path_x, current_time, cnx->quic->wifi_shadow_rtt, cnx->quic->bbr_quantum_ratio);
-=======
             picoquic_bbr_reset(bbr_state, path_x, current_time);
->>>>>>> master
             break;
         case picoquic_congestion_notification_seed_cwin:
             BBRSetBdpSeed(bbr_state, ack_state->nb_bytes_acknowledged);
